@@ -54,10 +54,10 @@ export default function AdminLoginPage() {
       // Show success message
       setSuccess(true);
       
-      // Use window.location for full page reload to ensure cookies are loaded
+      // Wait longer to ensure cookies are fully set in production
       setTimeout(() => {
         window.location.href = "/admin/dashboard";
-      }, 500);
+      }, 800);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
