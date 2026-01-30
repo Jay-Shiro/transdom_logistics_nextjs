@@ -52,6 +52,7 @@ export default function SignIn() {
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include", // Ensure cookies are sent/received
         body: JSON.stringify(payload),
       });
 

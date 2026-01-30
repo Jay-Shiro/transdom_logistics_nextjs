@@ -41,6 +41,7 @@ export default function AdminLoginPage() {
       const response = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include", // Critical for cookies in production
         body: JSON.stringify(formData),
       });
 
@@ -53,9 +54,9 @@ export default function AdminLoginPage() {
       // Show success message
       setSuccess(true);
       
-      // Small delay to show success state, then redirect
+      // Use window.location for full page reload to ensure cookies are loaded
       setTimeout(() => {
-        router.push("/admin/dashboard");
+        window.location.href = "/admin/dashboard";
       }, 500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
