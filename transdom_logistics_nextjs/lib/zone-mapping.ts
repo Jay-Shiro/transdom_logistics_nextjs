@@ -270,7 +270,9 @@ export function getAllZones(): string[] {
 }
 
 /**
- * Get display name for a zone
+ * Get display name for a zone (e.g., UK_IRELAND -> "UK/Ireland")
+ * @param zone - The zone identifier
+ * @returns Human-readable zone name
  */
 export function getZoneDisplayName(zone: string): string {
   return ZONE_DISPLAY_NAMES[zone] || zone;
