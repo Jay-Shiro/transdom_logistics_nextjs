@@ -63,18 +63,6 @@ export async function POST(request: NextRequest) {
 
     const data = (await response.json()) as AdminLoginResponse;
 
-    // Determine if we're in production
-    const isProduction = process.env.NODE_ENV === "production";
-
-    // Cookie configuration based on environment
-    const cookieOptions = {
-      httpOnly: true,
-      secure: isProduction, // HTTPS only in production
-      sameSite: "lax" as const, // Changed from strict to lax for better compatibility
-      maxAge: 24 * 60 * 60, // 24 hours
-      path: "/",
-    };
-
     // Create response with HTTP-only cookies
     const nextResponse = NextResponse.json(
       {
@@ -84,21 +72,26 @@ export async function POST(request: NextRequest) {
       { status: 200 },
     );
 
-    // Set HTTP-only cookie for backend JWT
-    nextResponse.cookies.set(
-      "admin_auth_token",
-      data.access_token,
-      cookieOptions,
-    );
+    // Set HTTP-only cookie for backend JWT (mirroring user auth settings)
+    nextResponse.cookies.set("admin_auth_token", data.access_token, {
+      httpOnly: true,
+      secure: false, // Match user login settings for consistency
+      sameSite: "lax",
+      maxAge: 24 * 60 * 60, // 24 hours
+      path: "/",
+    });
 
     // Set admin data in cookie (not HTTP-only, accessible to client)
     nextResponse.cookies.set("admin_user", JSON.stringify(data.admin), {
-      ...cookieOptions,
       httpOnly: false, // Must be false so client can read it
+      secure: false, // Match user login settings
+      sameSite: "lax",
+      maxAge: 24 * 60 * 60,
+      path: "/",
     });
 
     // Log successful admin login in production for security monitoring
-    if (isProduction) {
+    if (process.env.NODE_ENV === "production") {
       console.info(
         `Admin login successful: ${data.admin.name} (${data.admin.role})`,
       );
@@ -108,14 +101,11 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Admin login error:", error);
 
-    // Don't expose internal error details in production
-    const isProduction = process.env.NODE_ENV === "production";
-    const errorMessage = isProduction
-      ? "Login failed. Please try again."
-      : error instanceof Error
-        ? error.message
-        : "Login failed";
-
-    return NextResponse.json({ detail: errorMessage }, { status: 401 });
+    return NextResponse.json(
+      {
+        detail: error instanceof Error ? error.message : "Login failed",
+      },
+      { status: 401 },
+    );
   }
 }
