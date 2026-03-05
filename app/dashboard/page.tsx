@@ -1244,21 +1244,6 @@ export default function Dashboard() {
                           borderRadius: "8px",
                           padding: "0.5rem 0.875rem",
                           fontSize: "13px",
-                        }}
-                      >
-                        <span style={{ color: "#6b7280", fontWeight: "600" }}>
-                          Carrier:{" "}
-                        </span>
-                        <span style={{ color: "#1f2937", fontWeight: "700" }}>
-                          {trackingData.carrier || "—"}
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          background: "white",
-                          borderRadius: "8px",
-                          padding: "0.5rem 0.875rem",
-                          fontSize: "13px",
                           wordBreak: "break-all",
                         }}
                       >
