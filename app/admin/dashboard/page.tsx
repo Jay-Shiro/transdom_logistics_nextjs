@@ -12,10 +12,12 @@ import {
   LogOut,
   MailX,
   Inbox,
+  MapPin,
   Package,
   RefreshCw,
   Send,
   Trash2,
+  Truck,
   XCircle,
   DollarSign,
   Edit,
@@ -64,6 +66,7 @@ interface Order {
   shipment_quantity?: number;
   shipment_value?: number;
   shipment_weight?: number;
+  tracking_id?: string | null;
 }
 
 interface DashboardStats {
@@ -270,6 +273,8 @@ export default function AdminDashboard() {
     role: "support" as "admin" | "account" | "support",
   });
   const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [trackingInput, setTrackingInput] = useState("");
+  const [trackingLoading, setTrackingLoading] = useState(false);
 
   // Email templates
   const emailTemplates = [
@@ -614,6 +619,43 @@ The Transdom Express Team`,
         isDangerous: true,
       },
     );
+  };
+
+  const handleAssignTracking = async () => {
+    if (!selectedOrder || !trackingInput.trim()) return;
+    setTrackingLoading(true);
+    try {
+      const response = await fetch(
+        `/api/admin/orders/${selectedOrder._id}/tracking`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ tracking_id: trackingInput.trim() }),
+        },
+      );
+      if (!response.ok) {
+        const err = await response
+          .json()
+          .catch(() => ({ detail: "Failed to assign tracking ID" }));
+        showNotification("error", err.detail || "Failed to assign tracking ID");
+        return;
+      }
+      setSelectedOrder({ ...selectedOrder, tracking_id: trackingInput.trim() });
+      setTrackingInput("");
+      showNotification(
+        "success",
+        "Tracking ID assigned. Customer notified via email.",
+      );
+      await fetchOrders(filterStatus === "all" ? undefined : filterStatus);
+    } catch {
+      showNotification(
+        "error",
+        "Failed to assign tracking ID. Please try again.",
+      );
+    } finally {
+      setTrackingLoading(false);
+    }
   };
 
   const executeDeleteAllOrders = async () => {
@@ -8249,6 +8291,174 @@ bob@company.com`}
                     <CheckCircle size={48} />
                   </div>
                 </div>
+              </div>
+
+              {/* Tracking Information */}
+              <div
+                style={{
+                  background: "linear-gradient(90deg, #f0fdf4 0%, #d1fae5 100%)",
+                  borderRadius: "12px",
+                  padding: "1.25rem",
+                  borderLeft: "4px solid #10b981",
+                  marginBottom: "1.5rem",
+                }}
+              >
+                <h3
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: "bold",
+                    color: "#064e3b",
+                    marginBottom: "0.75rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center" }}>
+                    <Truck size={20} />
+                  </span>{" "}
+                  Tracking Information
+                </h3>
+
+                {selectedOrder.tracking_id && (
+                  <div style={{ marginBottom: "1rem" }}>
+                    <p
+                      style={{
+                        fontSize: "13px",
+                        color: "#047857",
+                        fontWeight: "600",
+                        margin: "0 0 0.4rem 0",
+                      }}
+                    >
+                      Current Tracking ID
+                    </p>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.75rem",
+                        background: "#bbf7d0",
+                        border: "1px solid #6ee7b7",
+                        borderRadius: "8px",
+                        padding: "0.75rem 1rem",
+                      }}
+                    >
+                      <CheckCircle size={18} color="#15803d" />
+                      <span
+                        style={{
+                          fontFamily: "monospace",
+                          fontSize: "15px",
+                          fontWeight: "700",
+                          color: "#14532d",
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        {selectedOrder.tracking_id}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {selectedOrder.status === "approved" ? (
+                  <div>
+                    <p
+                      style={{
+                        fontSize: "13px",
+                        color: "#065f46",
+                        fontWeight: "600",
+                        margin: "0 0 0.5rem 0",
+                      }}
+                    >
+                      {selectedOrder.tracking_id ? "Update Tracking ID" : "Assign Tracking ID"}
+                    </p>
+                    <div style={{ display: "flex", gap: "0.75rem" }}>
+                      <input
+                        type="text"
+                        placeholder="e.g. SH-J1LGVGMI5KXKPD4N"
+                        value={trackingInput}
+                        onChange={(e) => setTrackingInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleAssignTracking()}
+                        style={{
+                          flex: 1,
+                          padding: "0.75rem 1rem",
+                          border: "1.5px solid #6ee7b7",
+                          borderRadius: "8px",
+                          fontSize: "14px",
+                          outline: "none",
+                          fontFamily: "monospace",
+                          background: "white",
+                          color: "#1f2937",
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                        }}
+                      />
+                      <button
+                        onClick={handleAssignTracking}
+                        disabled={trackingLoading || !trackingInput.trim()}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.5rem",
+                          padding: "0.75rem 1.25rem",
+                          background:
+                            trackingLoading || !trackingInput.trim()
+                              ? "#9ca3af"
+                              : "#16a34a",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "8px",
+                          fontSize: "14px",
+                          fontWeight: "600",
+                          cursor:
+                            trackingLoading || !trackingInput.trim()
+                              ? "not-allowed"
+                              : "pointer",
+                          whiteSpace: "nowrap",
+                          transition: "all 0.2s",
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                        }}
+                        onMouseOver={(e) => {
+                          if (!trackingLoading && trackingInput.trim())
+                            e.currentTarget.style.backgroundColor = "#15803d";
+                        }}
+                        onMouseOut={(e) => {
+                          if (!trackingLoading && trackingInput.trim())
+                            e.currentTarget.style.backgroundColor = "#16a34a";
+                        }}
+                      >
+                        <Truck size={16} />{" "}
+                        {trackingLoading ? "Saving..." : "Assign"}
+                      </button>
+                    </div>
+                    <p
+                      style={{
+                        fontSize: "12px",
+                        color: "#6b7280",
+                        margin: "0.5rem 0 0 0",
+                      }}
+                    >
+                      Assigning a tracking ID automatically emails the customer their tracking number.
+                    </p>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.75rem",
+                      background: "#fefce8",
+                      border: "1px solid #fbbf24",
+                      borderRadius: "8px",
+                      padding: "0.75rem 1rem",
+                      fontSize: "13px",
+                      color: "#92400e",
+                    }}
+                  >
+                    <Clock size={16} color="#f59e0b" />
+                    Tracking ID can only be assigned to{" "}
+                    <strong style={{ marginLeft: "0.25rem" }}>approved</strong>
+                    &nbsp;orders. Approve this order first.
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons */}

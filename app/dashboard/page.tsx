@@ -13,6 +13,7 @@ import {
   Inbox,
   MapPin,
   Package,
+  RefreshCw,
   Send,
   Settings,
   Trash2,
@@ -65,6 +66,32 @@ interface Shipment {
   receiver_country: string;
   shipment_description: string;
   shipment_weight: number;
+  tracking_id?: string | null;
+}
+
+interface TrackingEvent {
+  status: string | null;
+  description: string | null;
+  location: string | null;
+  timestamp: string | null;
+  created_at?: string | null;
+}
+
+interface TrackingResponse {
+  tracking_id: string;
+  carrier: string | null;
+  current_status: string | null;
+  estimated_delivery: string | null;
+  origin: string | null;
+  destination: string | null;
+  events: TrackingEvent[];
+  raw?: {
+    data?: {
+      events?: TrackingEvent[];
+      status?: string;
+      delivery_date?: string;
+    };
+  };
 }
 
 export default function Dashboard() {
@@ -77,9 +104,18 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<
     "overview" | "orders" | "settings"
   >("overview");
-  const [orderFilter, setOrderFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
+  const [orderFilter, setOrderFilter] = useState<
+    "all" | "pending" | "approved" | "rejected"
+  >("all");
   const [showQuoteToast, setShowQuoteToast] = useState(true);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingError, setTrackingError] = useState<string | null>(null);
+  const [trackingData, setTrackingData] = useState<TrackingResponse | null>(
+    null,
+  );
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
+  const [trackingOrderNo, setTrackingOrderNo] = useState<string>("");
 
   const handleClearQuotation = useCallback(() => {
     localStorage.removeItem(BASIC_QUOTE_STORAGE_KEY);
@@ -213,6 +249,39 @@ export default function Dashboard() {
     }
   };
 
+  const handleTrackShipment = async (shipment: Shipment) => {
+    if (!shipment.tracking_id) return;
+    setTrackingOrderNo(shipment.order_no);
+    setTrackingData(null);
+    setTrackingError(null);
+    setTrackingLoading(true);
+    setShowTrackingModal(true);
+    const carrierMap: Record<string, string> = {
+      economy: "UPS",
+      standard: "FEDEX",
+      express: "DHL",
+    };
+    const carrierCode = carrierMap[shipment.delivery_speed.toLowerCase()] || "";
+    try {
+      const url = `/api/tracking/${encodeURIComponent(shipment.tracking_id)}${carrierCode ? `?carrier=${carrierCode}` : ""}`;
+      const res = await fetch(url, { credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) {
+        setTrackingError(
+          data.detail || "Failed to fetch tracking info. Please try again.",
+        );
+      } else {
+        setTrackingData(data);
+      }
+    } catch {
+      setTrackingError(
+        "Failed to fetch tracking info. Check your connection and try again.",
+      );
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="loading-container">
@@ -271,21 +340,23 @@ export default function Dashboard() {
         {/* Pending Quote Toast */}
         {basicQuote && showQuoteToast && (
           <div className="quote-toast">
-            <div className="quote-toast-content" onClick={handleContinueBooking}>
+            <div
+              className="quote-toast-content"
+              onClick={handleContinueBooking}
+            >
               <div className="quote-toast-icon">
                 <FileText size={20} />
               </div>
               <div className="quote-toast-info">
                 <div className="quote-toast-title">Pending Quote Available</div>
                 <div className="quote-toast-subtitle">
-                  {basicQuote.pickup_country} → {basicQuote.destination_country} • ₦{basicQuote.amount_paid.toLocaleString()}
+                  {basicQuote.pickup_country} → {basicQuote.destination_country}{" "}
+                  • ₦{basicQuote.amount_paid.toLocaleString()}
                 </div>
               </div>
-              <button className="quote-toast-action">
-                Continue Booking →
-              </button>
+              <button className="quote-toast-action">Continue Booking →</button>
             </div>
-            <button 
+            <button
               className="quote-toast-close"
               onClick={(e) => {
                 e.stopPropagation();
@@ -317,9 +388,7 @@ export default function Dashboard() {
             </span>
             All Orders
             {shipments.length > 0 && (
-              <span className="badge">
-                {shipments.length}
-              </span>
+              <span className="badge">{shipments.length}</span>
             )}
           </button>
           <button
@@ -354,9 +423,7 @@ export default function Dashboard() {
                 <div className="stat-content">
                   <div className="stat-label">Pending</div>
                   <div className="stat-value">
-                    {
-                      shipments.filter((s) => s.status === "pending").length
-                    }
+                    {shipments.filter((s) => s.status === "pending").length}
                   </div>
                 </div>
               </div>
@@ -418,7 +485,7 @@ export default function Dashboard() {
                 <h2>All Orders</h2>
                 <p>View and manage all your shipments</p>
               </div>
-              
+
               {/* Filter Buttons */}
               <div className="order-filters">
                 <button
@@ -466,25 +533,41 @@ export default function Dashboard() {
             ) : (
               <>
                 {(() => {
-                  const filteredShipments = orderFilter === "all" 
-                    ? shipments 
-                    : shipments.filter((s) => s.status === orderFilter);
-                  
+                  const filteredShipments =
+                    orderFilter === "all"
+                      ? shipments
+                      : shipments.filter((s) => s.status === orderFilter);
+
                   return filteredShipments.length > 0 ? (
                     <div className="shipments-list">
                       {filteredShipments.map((shipment) => (
                         <div key={shipment._id} className="shipment-card">
                           <div className="shipment-header">
                             <div className="shipment-title">
-                              <span className="order-no">{shipment.order_no}</span>
-                              <span className={`status-badge status-${shipment.status}`}>
-                                {shipment.status === "pending" && <Hand size={14} />}
-                                {shipment.status === "approved" && <CheckCircle size={14} />}
+                              <span className="order-no">
+                                {shipment.order_no}
+                              </span>
+                              <span
+                                className={`status-badge status-${shipment.status}`}
+                              >
+                                {shipment.status === "pending" && (
+                                  <Hand size={14} />
+                                )}
+                                {shipment.status === "approved" && (
+                                  <CheckCircle size={14} />
+                                )}
                                 {shipment.status.replace("_", " ")}
                               </span>
+                              {shipment.tracking_id && (
+                                <span className="tracking-available-badge">
+                                  <Truck size={12} /> Tracked
+                                </span>
+                              )}
                             </div>
                             <div className="shipment-date">
-                              {new Date(shipment.date_created).toLocaleDateString("en-US", {
+                              {new Date(
+                                shipment.date_created,
+                              ).toLocaleDateString("en-US", {
                                 year: "numeric",
                                 month: "short",
                                 day: "numeric",
@@ -500,8 +583,12 @@ export default function Dashboard() {
                                 </span>
                                 <div>
                                   <div className="detail-label">From</div>
-                                  <div className="detail-value">{shipment.sender_name}</div>
-                                  <div className="detail-sub">{shipment.sender_country}</div>
+                                  <div className="detail-value">
+                                    {shipment.sender_name}
+                                  </div>
+                                  <div className="detail-sub">
+                                    {shipment.sender_country}
+                                  </div>
                                 </div>
                               </div>
                               <div className="detail-divider">→</div>
@@ -511,8 +598,12 @@ export default function Dashboard() {
                                 </span>
                                 <div>
                                   <div className="detail-label">To</div>
-                                  <div className="detail-value">{shipment.receiver_name}</div>
-                                  <div className="detail-sub">{shipment.receiver_country}</div>
+                                  <div className="detail-value">
+                                    {shipment.receiver_name}
+                                  </div>
+                                  <div className="detail-sub">
+                                    {shipment.receiver_country}
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -520,15 +611,22 @@ export default function Dashboard() {
                             <div className="shipment-info">
                               <div className="info-col">
                                 <div className="info-label">Package</div>
-                                <div className="info-text">{shipment.shipment_description}</div>
+                                <div className="info-text">
+                                  {shipment.shipment_description}
+                                </div>
                               </div>
                               <div className="info-col">
                                 <div className="info-label">Weight</div>
-                                <div className="info-text">{shipment.shipment_weight} kg</div>
+                                <div className="info-text">
+                                  {shipment.shipment_weight} kg
+                                </div>
                               </div>
                               <div className="info-col">
                                 <div className="info-label">Carrier</div>
-                                <div className="info-text" style={{ textTransform: "capitalize" }}>
+                                <div
+                                  className="info-text"
+                                  style={{ textTransform: "capitalize" }}
+                                >
                                   {getCarrierName(shipment.delivery_speed)}
                                 </div>
                               </div>
@@ -541,6 +639,18 @@ export default function Dashboard() {
                             </div>
 
                             <div className="shipment-actions">
+                              {shipment.tracking_id ? (
+                                <button
+                                  className="btn-track-shipment"
+                                  onClick={() => handleTrackShipment(shipment)}
+                                >
+                                  <Truck size={16} /> Track Shipment
+                                </button>
+                              ) : shipment.status === "approved" ? (
+                                <span className="tracking-pending-label">
+                                  <Truck size={14} /> Awaiting tracking info
+                                </span>
+                              ) : null}
                               <Link
                                 href={`/receipt/${shipment.order_no}`}
                                 className="btn-view-receipt"
@@ -557,9 +667,16 @@ export default function Dashboard() {
                       <div className="empty-icon">
                         <Package size={48} />
                       </div>
-                      <h3>No {orderFilter === "all" ? "" : orderFilter.charAt(0).toUpperCase() + orderFilter.slice(1)} Orders</h3>
+                      <h3>
+                        No{" "}
+                        {orderFilter === "all"
+                          ? ""
+                          : orderFilter.charAt(0).toUpperCase() +
+                            orderFilter.slice(1)}{" "}
+                        Orders
+                      </h3>
                       <p>
-                        {orderFilter === "all" 
+                        {orderFilter === "all"
                           ? "You haven't placed any orders yet."
                           : `You don't have any ${orderFilter} orders at the moment.`}
                       </p>
@@ -674,14 +791,751 @@ export default function Dashboard() {
       </main>
 
       {/* Floating Action Button - View All Orders */}
-      <button 
-        className="floating-action-button" 
+      <button
+        className="floating-action-button"
         onClick={() => setActiveTab("orders")}
         title="View All Orders"
       >
         <Package size={24} />
         <span className="fab-text">View All Orders</span>
       </button>
+
+      {/* Tracking Modal */}
+      {showTrackingModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1100,
+            padding: "1rem",
+          }}
+          onClick={() => setShowTrackingModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "20px",
+              boxShadow: "0 25px 60px rgba(0,0,0,0.3)",
+              maxWidth: "680px",
+              width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              animation: "slideUp 0.3s ease",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                background: "linear-gradient(135deg, #047857 0%, #065f46 100%)",
+                padding: "1.75rem 2rem",
+                borderTopLeftRadius: "20px",
+                borderTopRightRadius: "20px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                position: "sticky",
+                top: 0,
+                zIndex: 10,
+              }}
+            >
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "1rem" }}
+              >
+                <div
+                  style={{
+                    background: "rgba(255,255,255,0.15)",
+                    borderRadius: "12px",
+                    padding: "0.75rem",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Truck size={28} color="white" />
+                </div>
+                <div>
+                  <h2
+                    style={{
+                      color: "white",
+                      fontSize: "22px",
+                      fontWeight: "800",
+                      margin: 0,
+                    }}
+                  >
+                    Shipment Tracking
+                  </h2>
+                  <p
+                    style={{
+                      color: "#a7f3d0",
+                      fontSize: "14px",
+                      margin: "0.25rem 0 0 0",
+                    }}
+                  >
+                    Order #{trackingOrderNo}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowTrackingModal(false)}
+                style={{
+                  background: "rgba(255,255,255,0.15)",
+                  border: "none",
+                  color: "white",
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "50%",
+                  fontSize: "22px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: "bold",
+                  lineHeight: "1",
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: "1.75rem 2rem" }}>
+              {trackingLoading ? (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "4rem 2rem",
+                    gap: "1.25rem",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "56px",
+                      height: "56px",
+                      border: "4px solid #d1fae5",
+                      borderTop: "4px solid #10b981",
+                      borderRadius: "50%",
+                      animation: "spin 1s linear infinite",
+                    }}
+                  />
+                  <div style={{ textAlign: "center" }}>
+                    <p
+                      style={{
+                        color: "#047857",
+                        fontWeight: "700",
+                        fontSize: "16px",
+                        margin: "0 0 0.25rem 0",
+                      }}
+                    >
+                      Fetching Live Tracking Data
+                    </p>
+                    <p
+                      style={{ color: "#6b7280", fontSize: "14px", margin: 0 }}
+                    >
+                      Contacting carrier, this may take a few seconds...
+                    </p>
+                  </div>
+                </div>
+              ) : trackingError ? (
+                <div
+                  style={{
+                    background: "#fef2f2",
+                    border: "2px solid #fecaca",
+                    borderRadius: "16px",
+                    padding: "2.5rem",
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontSize: "48px", marginBottom: "1rem" }}>
+                    ⚠️
+                  </div>
+                  <h3
+                    style={{
+                      color: "#991b1b",
+                      fontSize: "18px",
+                      fontWeight: "700",
+                      marginBottom: "0.75rem",
+                      margin: "0 0 0.75rem 0",
+                    }}
+                  >
+                    Unable to Fetch Tracking Info
+                  </h3>
+                  <p
+                    style={{
+                      color: "#7f1d1d",
+                      fontSize: "15px",
+                      margin: "0 0 1.5rem 0",
+                    }}
+                  >
+                    {trackingError}
+                  </p>
+                  <button
+                    onClick={() => {
+                      const ship = shipments.find(
+                        (s) => s.order_no === trackingOrderNo,
+                      );
+                      if (ship) handleTrackShipment(ship);
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      padding: "0.75rem 1.5rem",
+                      background:
+                        "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "8px",
+                      fontSize: "15px",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <RefreshCw size={16} /> Try Again
+                  </button>
+                </div>
+              ) : trackingData ? (
+                <>
+                  {/* Status Banner */}
+                  <div
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
+                      border: "2px solid #10b981",
+                      borderRadius: "16px",
+                      padding: "1.5rem",
+                      marginBottom: "1.5rem",
+                    }}
+                  >
+                    {/* Current Status + Estimated Delivery */}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        justifyContent: "space-between",
+                        marginBottom: "1.25rem",
+                        flexWrap: "wrap",
+                        gap: "1rem",
+                      }}
+                    >
+                      <div>
+                        <p
+                          style={{
+                            fontSize: "12px",
+                            color: "#6b7280",
+                            fontWeight: "600",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
+                            margin: "0 0 0.5rem 0",
+                          }}
+                        >
+                          Current Status
+                        </p>
+                        {(() => {
+                          const statusMap: Record<
+                            string,
+                            { label: string; bg: string; color: string }
+                          > = {
+                            PICKED_UP: {
+                              label: "📦 Picked Up",
+                              bg: "#dbeafe",
+                              color: "#1e40af",
+                            },
+                            IN_TRANSIT: {
+                              label: "✈️ In Transit",
+                              bg: "#fef3c7",
+                              color: "#92400e",
+                            },
+                            OUT_FOR_DELIVERY: {
+                              label: "🚚 Out for Delivery",
+                              bg: "#ffedd5",
+                              color: "#9a3412",
+                            },
+                            DELIVERED: {
+                              label: "✅ Delivered",
+                              bg: "#d1fae5",
+                              color: "#065f46",
+                            },
+                            EXCEPTION: {
+                              label: "⚠️ Attention Required",
+                              bg: "#fee2e2",
+                              color: "#991b1b",
+                            },
+                          };
+                          const key = (
+                            trackingData.current_status || ""
+                          ).toUpperCase();
+                          const info = statusMap[key] || {
+                            label: trackingData.current_status || "Unknown",
+                            bg: "#f3f4f6",
+                            color: "#374151",
+                          };
+                          return (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.5rem",
+                                padding: "0.5rem 1.25rem",
+                                borderRadius: "99px",
+                                background: info.bg,
+                                color: info.color,
+                                fontSize: "15px",
+                                fontWeight: "700",
+                              }}
+                            >
+                              {info.label}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      {trackingData.estimated_delivery && (
+                        <div style={{ textAlign: "right" }}>
+                          <p
+                            style={{
+                              fontSize: "12px",
+                              color: "#6b7280",
+                              fontWeight: "600",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.5px",
+                              margin: "0 0 0.25rem 0",
+                            }}
+                          >
+                            Est. Delivery
+                          </p>
+                          <p
+                            style={{
+                              fontSize: "17px",
+                              fontWeight: "700",
+                              color: "#047857",
+                              margin: 0,
+                            }}
+                          >
+                            {new Date(
+                              trackingData.estimated_delivery,
+                            ).toLocaleDateString("en-US", {
+                              weekday: "short",
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Route origin → destination */}
+                    {(trackingData.origin || trackingData.destination) && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "1rem",
+                          background: "white",
+                          borderRadius: "12px",
+                          padding: "1rem 1.25rem",
+                          marginBottom: "1.25rem",
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <p
+                            style={{
+                              fontSize: "11px",
+                              color: "#6b7280",
+                              fontWeight: "600",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.5px",
+                              margin: "0 0 0.25rem 0",
+                            }}
+                          >
+                            Origin
+                          </p>
+                          <p
+                            style={{
+                              fontSize: "14px",
+                              fontWeight: "700",
+                              color: "#1f2937",
+                              margin: 0,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.375rem",
+                            }}
+                          >
+                            <MapPin size={14} color="#3b82f6" />{" "}
+                            {trackingData.origin || "—"}
+                          </p>
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.375rem",
+                            color: "#10b981",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: "24px",
+                              height: "2px",
+                              background: "#10b981",
+                            }}
+                          />
+                          <Truck size={18} color="#10b981" />
+                          <div
+                            style={{
+                              width: "24px",
+                              height: "2px",
+                              background: "#10b981",
+                            }}
+                          />
+                        </div>
+                        <div style={{ flex: 1, textAlign: "right" }}>
+                          <p
+                            style={{
+                              fontSize: "11px",
+                              color: "#6b7280",
+                              fontWeight: "600",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.5px",
+                              margin: "0 0 0.25rem 0",
+                            }}
+                          >
+                            Destination
+                          </p>
+                          <p
+                            style={{
+                              fontSize: "14px",
+                              fontWeight: "700",
+                              color: "#1f2937",
+                              margin: 0,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "flex-end",
+                              gap: "0.375rem",
+                            }}
+                          >
+                            {trackingData.destination || "—"}{" "}
+                            <MapPin size={14} color="#16a34a" />
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Meta: carrier + tracking # */}
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "0.75rem",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div
+                        style={{
+                          background: "white",
+                          borderRadius: "8px",
+                          padding: "0.5rem 0.875rem",
+                          fontSize: "13px",
+                        }}
+                      >
+                        <span style={{ color: "#6b7280", fontWeight: "600" }}>
+                          Carrier:{" "}
+                        </span>
+                        <span style={{ color: "#1f2937", fontWeight: "700" }}>
+                          {trackingData.carrier || "—"}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          background: "white",
+                          borderRadius: "8px",
+                          padding: "0.5rem 0.875rem",
+                          fontSize: "13px",
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        <span style={{ color: "#6b7280", fontWeight: "600" }}>
+                          Tracking #:{" "}
+                        </span>
+                        <span
+                          style={{
+                            color: "#047857",
+                            fontWeight: "700",
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {trackingData.tracking_id}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Timeline */}
+                  {(trackingData.raw?.data?.events ?? trackingData.events)
+                    .length > 0 ? (
+                    <div>
+                      <h3
+                        style={{
+                          fontSize: "17px",
+                          fontWeight: "700",
+                          color: "#047857",
+                          margin: "0 0 1.25rem 0",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.5rem",
+                        }}
+                      >
+                        <Package size={18} /> Tracking Timeline
+                      </h3>
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        {[
+                          ...(trackingData.raw?.data?.events ??
+                            trackingData.events),
+                        ]
+                          .reverse()
+                          .map((evt, i, arr) => (
+                            <div
+                              key={i}
+                              style={{ display: "flex", gap: "1rem" }}
+                            >
+                              {/* Marker */}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  alignItems: "center",
+                                  flexShrink: 0,
+                                  width: "22px",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: i === 0 ? "16px" : "12px",
+                                    height: i === 0 ? "16px" : "12px",
+                                    borderRadius: "50%",
+                                    background: i === 0 ? "#10b981" : "#d1fae5",
+                                    border:
+                                      i === 0
+                                        ? "3px solid #10b981"
+                                        : "2px solid #6ee7b7",
+                                    marginTop: "4px",
+                                    zIndex: 1,
+                                    flexShrink: 0,
+                                    boxShadow:
+                                      i === 0
+                                        ? "0 0 0 4px rgba(16,185,129,0.2)"
+                                        : "none",
+                                  }}
+                                />
+                                {i < arr.length - 1 && (
+                                  <div
+                                    style={{
+                                      width: "2px",
+                                      flex: 1,
+                                      background: "#d1fae5",
+                                      minHeight: "28px",
+                                    }}
+                                  />
+                                )}
+                              </div>
+                              {/* Content */}
+                              <div
+                                style={{
+                                  flex: 1,
+                                  paddingBottom:
+                                    i < arr.length - 1 ? "1rem" : 0,
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    background: i === 0 ? "#f0fdf4" : "#f9fafb",
+                                    border:
+                                      i === 0
+                                        ? "1px solid #86efac"
+                                        : "1px solid #e5e7eb",
+                                    borderRadius: "12px",
+                                    padding: "0.875rem 1rem",
+                                  }}
+                                >
+                                  <p
+                                    style={{
+                                      fontSize: "14px",
+                                      fontWeight: "700",
+                                      color: i === 0 ? "#065f46" : "#374151",
+                                      margin: "0 0 0.25rem 0",
+                                      textTransform: "capitalize",
+                                    }}
+                                  >
+                                    {(evt.status || "Update").replace(
+                                      /_/g,
+                                      " ",
+                                    )}
+                                  </p>
+                                  {evt.description && (
+                                    <p
+                                      style={{
+                                        fontSize: "13px",
+                                        color: "#6b7280",
+                                        margin: "0 0 0.5rem 0",
+                                      }}
+                                    >
+                                      {evt.description}
+                                    </p>
+                                  )}
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      gap: "1rem",
+                                      flexWrap: "wrap",
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    {evt.location && (
+                                      <span
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "0.25rem",
+                                          fontSize: "12px",
+                                          color: "#6b7280",
+                                        }}
+                                      >
+                                        <MapPin size={11} /> {evt.location}
+                                      </span>
+                                    )}
+                                    {(evt.created_at || evt.timestamp) && (
+                                      <span
+                                        style={{
+                                          fontSize: "12px",
+                                          color: "#9ca3af",
+                                          fontStyle: "italic",
+                                        }}
+                                      >
+                                        {new Date(
+                                          (evt.created_at || evt.timestamp)!,
+                                        ).toLocaleString("en-US", {
+                                          month: "short",
+                                          day: "numeric",
+                                          year: "numeric",
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        })}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        background: "#f9fafb",
+                        border: "2px dashed #d1d5db",
+                        borderRadius: "12px",
+                        padding: "2rem",
+                        textAlign: "center",
+                      }}
+                    >
+                      <Truck
+                        size={32}
+                        color="#9ca3af"
+                        style={{
+                          margin: "0 auto 0.75rem auto",
+                          display: "block",
+                        }}
+                      />
+                      <p
+                        style={{
+                          color: "#6b7280",
+                          fontSize: "15px",
+                          margin: 0,
+                        }}
+                      >
+                        No tracking events yet. Check back soon.
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
+
+            {/* Modal Footer */}
+            <div
+              style={{
+                padding: "1.25rem 2rem",
+                borderTop: "1px solid #e5e7eb",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                background: "#f9fafb",
+                borderBottomLeftRadius: "20px",
+                borderBottomRightRadius: "20px",
+                gap: "1rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <p style={{ fontSize: "13px", color: "#9ca3af", margin: 0 }}>
+                Tracking updates may take a few minutes to refresh.
+              </p>
+              <div style={{ display: "flex", gap: "0.75rem" }}>
+                <button
+                  onClick={() => {
+                    const ship = shipments.find(
+                      (s) => s.order_no === trackingOrderNo,
+                    );
+                    if (ship) handleTrackShipment(ship);
+                  }}
+                  disabled={trackingLoading}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                    padding: "0.625rem 1.25rem",
+                    background: trackingLoading ? "#e5e7eb" : "white",
+                    color: trackingLoading ? "#9ca3af" : "#047857",
+                    border: "2px solid",
+                    borderColor: trackingLoading ? "#e5e7eb" : "#10b981",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    cursor: trackingLoading ? "not-allowed" : "pointer",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  <RefreshCw size={15} /> Refresh
+                </button>
+                <button
+                  onClick={() => setShowTrackingModal(false)}
+                  style={{
+                    padding: "0.625rem 1.5rem",
+                    background:
+                      "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Footer />
 
@@ -3153,6 +4007,57 @@ export default function Dashboard() {
         .order-count:before {
           content: "📦";
           font-size: 14px;
+        }
+
+        /* Tracking Badge (on shipment card header) */
+        .tracking-available-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+          padding: 0.25rem 0.625rem;
+          background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+          color: #1d4ed8;
+          border-radius: 20px;
+          font-size: 11px;
+          font-weight: 700;
+          border: 1px solid #93c5fd;
+          letter-spacing: 0.3px;
+        }
+
+        /* Awaiting tracking label */
+        .tracking-pending-label {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.375rem;
+          padding: 0.5rem 1rem;
+          background: #fef3c7;
+          color: #92400e;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          border: 1px solid #fcd34d;
+        }
+
+        /* Track shipment button */
+        .btn-track-shipment {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.625rem 1.25rem;
+          background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          box-shadow: 0 2px 4px rgba(29, 78, 216, 0.2);
+        }
+
+        .btn-track-shipment:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 8px rgba(29, 78, 216, 0.3);
         }
       `}</style>
     </div>
