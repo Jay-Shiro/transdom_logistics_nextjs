@@ -359,15 +359,16 @@ export default function BookingPage() {
       return;
     }
 
-    // Validate post code
+    // Validate post code (supports letters and numbers)
     if (!receiverDetails.postCode || receiverDetails.postCode.trim() === "") {
       setError("Receiver post code is required");
       return;
     }
 
-    if (!numericRegex.test(receiverDetails.postCode)) {
+    const postalCodeRegex = /^[A-Za-z0-9\s-]+$/;
+    if (!postalCodeRegex.test(receiverDetails.postCode.trim())) {
       setError(
-        "Post code must contain only numbers (no spaces, dashes, or special characters)",
+        "Post code can only contain letters, numbers, spaces, or hyphens",
       );
       return;
     }
@@ -1195,7 +1196,7 @@ export default function BookingPage() {
                           marginLeft: "8px",
                         }}
                       >
-                        (Numbers only)
+                        (Letters and numbers)
                       </span>
                     </label>
                     <input
@@ -1209,9 +1210,9 @@ export default function BookingPage() {
                           postCode: e.target.value,
                         })
                       }
-                      placeholder="e.g., 23467"
-                      pattern="\d+"
-                      title="Post code must contain only numbers"
+                      placeholder="e.g., SW1A 1AA or 23467"
+                      pattern="[A-Za-z0-9\s-]+"
+                      title="Post code can contain letters, numbers, spaces, and hyphens"
                       required
                     />
                   </div>

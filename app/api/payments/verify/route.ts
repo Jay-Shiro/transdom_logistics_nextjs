@@ -67,6 +67,7 @@ export async function GET(request: NextRequest) {
         status: "success",
         message: "Payment verified successfully",
         data: {
+          transaction_id: paystackData.data.id?.toString(),
           reference: paystackData.data.reference,
           amount: amountInNaira,
           currency: paystackData.data.currency,

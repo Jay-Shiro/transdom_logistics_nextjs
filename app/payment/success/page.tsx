@@ -95,6 +95,8 @@ function VerifyContent() {
           amount_paid: bookingDetails.amount_paid,
           add_insurance: bookingDetails.add_insurance,
           insurance_fee: bookingDetails.insurance_fee || 0,
+          transaction_id: verifyData?.data?.transaction_id,
+          payment_reference: verifyData?.data?.reference,
         }),
       });
 

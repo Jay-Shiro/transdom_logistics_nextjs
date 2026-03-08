@@ -43,6 +43,8 @@ interface OrderDetails {
   amount_paid: number;
   add_insurance: boolean;
   insurance_fee: number;
+  transaction_id?: string;
+  payment_reference?: string;
   status: string;
   date_created: string;
   date_approved?: string;
@@ -124,13 +126,13 @@ export default function ReceiptPage() {
       if (!receiptElement) return;
 
       // Add compact class for PDF generation
-      receiptElement.classList.add('pdf-compact');
+      receiptElement.classList.add("pdf-compact");
 
       // Scroll to top to ensure full content is in view
       window.scrollTo(0, 0);
-      
+
       // Wait a bit for rendering to complete with the compact styles
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
       // Get the full height of the content
       const elementHeight = receiptElement.scrollHeight;
@@ -151,7 +153,7 @@ export default function ReceiptPage() {
       });
 
       // Remove compact class after capture
-      receiptElement.classList.remove('pdf-compact');
+      receiptElement.classList.remove("pdf-compact");
 
       // Calculate PDF dimensions to fit A4
       const imgWidth = 210; // A4 width in mm
@@ -168,7 +170,7 @@ export default function ReceiptPage() {
 
       // Convert to JPEG with compression for much smaller file size
       const imgData = canvas.toDataURL("image/jpeg", 0.85); // JPEG with 85% quality
-      
+
       // If content is longer than one page, add multiple pages
       let heightLeft = imgHeight;
       let position = 0;
@@ -191,7 +193,7 @@ export default function ReceiptPage() {
       // Ensure compact class is removed on error
       const receiptElement = document.getElementById("receipt-content");
       if (receiptElement) {
-        receiptElement.classList.remove('pdf-compact');
+        receiptElement.classList.remove("pdf-compact");
       }
       alert("Failed to download PDF. Please try again.");
     } finally {
@@ -245,6 +247,7 @@ export default function ReceiptPage() {
   }
 
   const subtotal = order.amount_paid - (order.insurance_fee || 0);
+  const transactionId = order.transaction_id || order.payment_reference;
 
   return (
     <>
@@ -475,6 +478,12 @@ export default function ReceiptPage() {
                   ₦{order.amount_paid.toLocaleString()}
                 </span>
               </div>
+              {transactionId && (
+                <div className="payment-row">
+                  <span className="payment-label">Transaction ID:</span>
+                  <span className="payment-value">{transactionId}</span>
+                </div>
+              )}
             </div>
           </div>
 

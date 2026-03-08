@@ -30,6 +30,8 @@ interface MakeOrderRequest {
   zone_picked: string;
   delivery_speed: string;
   amount_paid: number;
+  transaction_id?: string;
+  payment_reference?: string;
 }
 
 interface OrderResponse {
@@ -59,6 +61,8 @@ interface OrderResponse {
   shipment_quantity: number;
   shipment_value?: number;
   shipment_weight: number;
+  transaction_id?: string;
+  payment_reference?: string;
 }
 
 /**
@@ -212,6 +216,8 @@ export async function POST(request: NextRequest) {
         zone_picked: body.zone_picked,
         delivery_speed: body.delivery_speed,
         amount_paid: body.amount_paid,
+        transaction_id: body.transaction_id,
+        payment_reference: body.payment_reference,
       }),
     });
 

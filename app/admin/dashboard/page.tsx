@@ -8296,7 +8296,8 @@ bob@company.com`}
               {/* Tracking Information */}
               <div
                 style={{
-                  background: "linear-gradient(90deg, #f0fdf4 0%, #d1fae5 100%)",
+                  background:
+                    "linear-gradient(90deg, #f0fdf4 0%, #d1fae5 100%)",
                   borderRadius: "12px",
                   padding: "1.25rem",
                   borderLeft: "4px solid #10b981",
@@ -8314,7 +8315,9 @@ bob@company.com`}
                     gap: "0.5rem",
                   }}
                 >
-                  <span style={{ display: "inline-flex", alignItems: "center" }}>
+                  <span
+                    style={{ display: "inline-flex", alignItems: "center" }}
+                  >
                     <Truck size={20} />
                   </span>{" "}
                   Tracking Information
@@ -8369,7 +8372,9 @@ bob@company.com`}
                         margin: "0 0 0.5rem 0",
                       }}
                     >
-                      {selectedOrder.tracking_id ? "Update Tracking ID" : "Assign Tracking ID"}
+                      {selectedOrder.tracking_id
+                        ? "Update Tracking ID"
+                        : "Assign Tracking ID"}
                     </p>
                     <div style={{ display: "flex", gap: "0.75rem" }}>
                       <input
@@ -8377,7 +8382,9 @@ bob@company.com`}
                         placeholder="e.g. SH-J1LGVGMI5KXKPD4N"
                         value={trackingInput}
                         onChange={(e) => setTrackingInput(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleAssignTracking()}
+                        onKeyDown={(e) =>
+                          e.key === "Enter" && handleAssignTracking()
+                        }
                         style={{
                           flex: 1,
                           padding: "0.75rem 1rem",
@@ -8436,7 +8443,8 @@ bob@company.com`}
                         margin: "0.5rem 0 0 0",
                       }}
                     >
-                      Assigning a tracking ID automatically emails the customer their tracking number.
+                      Assigning a tracking ID automatically emails the customer
+                      their tracking number.
                     </p>
                   </div>
                 ) : (

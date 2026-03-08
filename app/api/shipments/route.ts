@@ -29,6 +29,8 @@ interface Shipment {
   shipment_quantity: number;
   shipment_value?: number;
   shipment_weight: number;
+  transaction_id?: string;
+  payment_reference?: string;
 }
 
 /**
