@@ -1,24 +1,24 @@
 "use client";
 
-import { useState, FormEvent, useEffect } from "react";
-import Image from "next/image";
-import Link from "next/link";
-import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
+import Header from "@/app/components/Header";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import SEO from "@/app/components/SEO";
-import { useRouter } from "next/navigation";
 import { hasValidAuth } from "@/lib/auth";
-import { Package, Truck } from "lucide-react";
 import {
-  getAllCountries,
-  getCountryIsoCode,
-  getStatesOfCountry,
-  getCitiesOfState,
-  getStateIsoCode,
-  StateOption,
   CityOption,
+  getAllCountries,
+  getCitiesOfState,
+  getCountryIsoCode,
+  getStateIsoCode,
+  getStatesOfCountry,
+  StateOption,
 } from "@/lib/countries-data";
+import { Package } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useState } from "react";
 
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL || "https://transdomlogistics.com";
@@ -94,6 +94,20 @@ export default function QuotationPage() {
     destinationCity: "",
     weight: "",
   });
+  const [localQuoteData, setLocalQuoteData] = useState({
+    pickupState: "",
+    pickupCity: "",
+    destinationState: "",
+    destinationCity: "",
+    weight: "",
+    deliverySpeed: "same-day",
+  });
+  const [localEstimate, setLocalEstimate] = useState<{
+    route: string;
+    weight: string;
+    eta: string;
+    price: string;
+  } | null>(null);
 
   // Dynamic state and city options
   const [pickupStates, setPickupStates] = useState<StateOption[]>([]);
@@ -164,6 +178,58 @@ export default function QuotationPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleLocalSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    const {
+      pickupState,
+      pickupCity,
+      destinationState,
+      destinationCity,
+      weight,
+      deliverySpeed,
+    } = localQuoteData;
+
+    if (
+      !pickupState ||
+      !pickupCity ||
+      !destinationState ||
+      !destinationCity ||
+      !weight
+    ) {
+      setError("Please complete all local delivery fields");
+      return;
+    }
+
+    const parsedWeight = parseFloat(weight);
+    if (isNaN(parsedWeight) || parsedWeight <= 0) {
+      setError("Weight must be greater than zero");
+      return;
+    }
+
+    const speedMultipliers = {
+      "same-day": { eta: "Same day delivery", multiplier: 2.2 },
+      "next-day": { eta: "Next day delivery", multiplier: 1.6 },
+      standard: { eta: "Within 2-3 days", multiplier: 1.1 },
+    } as const;
+
+    const selectedSpeedMeta =
+      speedMultipliers[deliverySpeed as keyof typeof speedMultipliers] ||
+      speedMultipliers.standard;
+    const baseRate = 4500;
+    const estimatedPrice = Math.round(
+      baseRate * parsedWeight * selectedSpeedMeta.multiplier,
+    );
+
+    setLocalEstimate({
+      route: `${pickupCity}, ${pickupState} → ${destinationCity}, ${destinationState}`,
+      weight: `${parsedWeight} KG`,
+      eta: selectedSpeedMeta.eta,
+      price: `₦${estimatedPrice.toLocaleString()}`,
+    });
+    setError(null);
   };
 
   // Load pickup states when pickup country changes
@@ -348,14 +414,12 @@ export default function QuotationPage() {
             <div className="shipping-tabs">
               <button
                 className={`tab-btn ${activeTab === "international" ? "active" : ""}`}
-                onClick={() => setActiveTab("international")}
-              >
+                onClick={() => setActiveTab("international")}>
                 INTERNATIONAL
               </button>
               <button
                 className={`tab-btn ${activeTab === "local" ? "active" : ""}`}
-                onClick={() => setActiveTab("local")}
-              >
+                onClick={() => setActiveTab("local")}>
                 LOCAL
               </button>
             </div>
@@ -368,8 +432,7 @@ export default function QuotationPage() {
                   color: "#c33",
                   borderRadius: "4px",
                   marginBottom: "1rem",
-                }}
-              >
+                }}>
                 {error}
               </div>
             )}
@@ -582,8 +645,7 @@ export default function QuotationPage() {
                 <button
                   type="submit"
                   className="btn-calculate"
-                  disabled={isLoading}
-                >
+                  disabled={isLoading}>
                   {isLoading ? "CALCULATING..." : "GET QUOTE"}
                 </button>
               </form>
@@ -604,8 +666,7 @@ export default function QuotationPage() {
                         marginBottom: "0.5rem",
                         fontSize: "0.9rem",
                         color: "#666",
-                      }}
-                    >
+                      }}>
                       <span>From:</span>
                       <strong>{quotationResult.pickup_country}</strong>
                     </div>
@@ -616,8 +677,7 @@ export default function QuotationPage() {
                         marginBottom: "0.5rem",
                         fontSize: "0.9rem",
                         color: "#666",
-                      }}
-                    >
+                      }}>
                       <span>To:</span>
                       <strong>{quotationResult.destination_country}</strong>
                     </div>
@@ -628,8 +688,7 @@ export default function QuotationPage() {
                         marginBottom: "0.5rem",
                         fontSize: "0.9rem",
                         color: "#666",
-                      }}
-                    >
+                      }}>
                       <span>Weight:</span>
                       <strong>{quotationResult.weight} KG</strong>
                     </div>
@@ -639,8 +698,7 @@ export default function QuotationPage() {
                         justifyContent: "space-between",
                         fontSize: "0.9rem",
                         color: "#666",
-                      }}
-                    >
+                      }}>
                       <span>Zone:</span>
                       <strong>
                         {quotationResult.unified_zone_display ||
@@ -671,16 +729,14 @@ export default function QuotationPage() {
                             selectedSpeed === option.speed
                               ? "#fffef0"
                               : "white",
-                        }}
-                      >
+                        }}>
                         <div
                           style={{
                             display: "flex",
                             justifyContent: "space-between",
                             alignItems: "center",
                             marginBottom: "0.5rem",
-                          }}
-                        >
+                          }}>
                           <div>
                             <input
                               type="radio"
@@ -694,8 +750,7 @@ export default function QuotationPage() {
                               style={{
                                 textTransform: "capitalize",
                                 fontSize: "1.1rem",
-                              }}
-                            >
+                              }}>
                               {getCarrierName(option.speed)}
                             </strong>
                           </div>
@@ -704,8 +759,7 @@ export default function QuotationPage() {
                               fontSize: "1.3rem",
                               fontWeight: "bold",
                               color: "#047857",
-                            }}
-                          >
+                            }}>
                             {quotationResult.currency}{" "}
                             {parseFloat(option.price).toLocaleString()}
                           </div>
@@ -717,8 +771,7 @@ export default function QuotationPage() {
                             display: "flex",
                             alignItems: "center",
                             gap: "0.5rem",
-                          }}
-                        >
+                          }}>
                           <Package size={14} /> Estimated delivery:{" "}
                           {option.estimated_delivery}
                         </div>
@@ -731,13 +784,11 @@ export default function QuotationPage() {
                       display: "flex",
                       gap: "1rem",
                       flexDirection: "column",
-                    }}
-                  >
+                    }}>
                     <button
                       type="button"
                       className="btn-calculate"
-                      onClick={handleCreateOrder}
-                    >
+                      onClick={handleCreateOrder}>
                       BOOK NOW
                     </button>
                     <button
@@ -759,8 +810,7 @@ export default function QuotationPage() {
                       }}
                       onMouseOut={(e) => {
                         e.currentTarget.style.backgroundColor = "transparent";
-                      }}
-                    >
+                      }}>
                       START OVER
                     </button>
                   </div>
@@ -769,29 +819,185 @@ export default function QuotationPage() {
 
             {/* Local Form */}
             {activeTab === "local" && (
-              <div
-                className="quotation-form"
-                style={{ textAlign: "center", padding: "4rem 2rem" }}
-              >
-                <h3
-                  className="form-section-title"
-                  style={{ fontSize: "2rem", marginBottom: "1rem" }}
-                >
-                  Coming Soon
-                </h3>
-                <p
-                  style={{
-                    fontSize: "1.1rem",
-                    color: "#666",
-                    marginBottom: "2rem",
-                  }}
-                >
-                  Local delivery calculator will be available soon. Stay tuned!
-                </p>
-                <div style={{ opacity: "0.3" }}>
-                  <Truck size={48} />
+              <form className="quotation-form" onSubmit={handleLocalSubmit}>
+                <h3 className="form-section-title">Local Delivery Quote</h3>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="local-pickup-state">Pickup State *</label>
+                    <input
+                      type="text"
+                      id="local-pickup-state"
+                      className="form-control"
+                      placeholder="Enter pickup state"
+                      value={localQuoteData.pickupState}
+                      onChange={(e) =>
+                        setLocalQuoteData({
+                          ...localQuoteData,
+                          pickupState: e.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="local-pickup-city">Pickup City *</label>
+                    <input
+                      type="text"
+                      id="local-pickup-city"
+                      className="form-control"
+                      placeholder="Enter pickup city"
+                      value={localQuoteData.pickupCity}
+                      onChange={(e) =>
+                        setLocalQuoteData({
+                          ...localQuoteData,
+                          pickupCity: e.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </div>
                 </div>
-              </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="local-destination-state">
+                      Destination State *
+                    </label>
+                    <input
+                      type="text"
+                      id="local-destination-state"
+                      className="form-control"
+                      placeholder="Enter destination state"
+                      value={localQuoteData.destinationState}
+                      onChange={(e) =>
+                        setLocalQuoteData({
+                          ...localQuoteData,
+                          destinationState: e.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="local-destination-city">
+                      Destination City *
+                    </label>
+                    <input
+                      type="text"
+                      id="local-destination-city"
+                      className="form-control"
+                      placeholder="Enter destination city"
+                      value={localQuoteData.destinationCity}
+                      onChange={(e) =>
+                        setLocalQuoteData({
+                          ...localQuoteData,
+                          destinationCity: e.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="local-weight">Weight (KG) *</label>
+                    <input
+                      type="number"
+                      id="local-weight"
+                      className="form-control"
+                      placeholder="Enter shipment weight"
+                      min="0.1"
+                      step="0.1"
+                      value={localQuoteData.weight}
+                      onChange={(e) =>
+                        setLocalQuoteData({
+                          ...localQuoteData,
+                          weight: e.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="local-delivery-speed">Delivery Speed</label>
+                    <select
+                      id="local-delivery-speed"
+                      className="form-control"
+                      value={localQuoteData.deliverySpeed}
+                      onChange={(e) =>
+                        setLocalQuoteData({
+                          ...localQuoteData,
+                          deliverySpeed: e.target.value,
+                        })
+                      }>
+                      <option value="same-day">Same Day</option>
+                      <option value="next-day">Next Day</option>
+                      <option value="standard">Standard</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button type="submit" className="btn-calculate">
+                  GET QUOTE
+                </button>
+
+                {localEstimate && (
+                  <div
+                    style={{
+                      background: "#f0fdf4",
+                      border: "1px solid #bbf7d0",
+                      borderRadius: "12px",
+                      padding: "1.25rem",
+                      display: "grid",
+                      gap: "0.75rem",
+                    }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "1rem",
+                      }}>
+                      <span style={{ color: "#6b7280" }}>Route</span>
+                      <strong style={{ textAlign: "right" }}>
+                        {localEstimate.route}
+                      </strong>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "1rem",
+                      }}>
+                      <span style={{ color: "#6b7280" }}>Weight</span>
+                      <strong>{localEstimate.weight}</strong>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "1rem",
+                      }}>
+                      <span style={{ color: "#6b7280" }}>
+                        Estimated delivery
+                      </span>
+                      <strong>{localEstimate.eta}</strong>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "1rem",
+                      }}>
+                      <span style={{ color: "#6b7280" }}>Estimated cost</span>
+                      <strong style={{ color: "#047857" }}>
+                        {localEstimate.price}
+                      </strong>
+                    </div>
+                  </div>
+                )}
+              </form>
             )}
           </div>
         </div>
@@ -819,7 +1025,8 @@ export default function QuotationPage() {
         }
 
         .quotation-wrapper {
-          max-width: 1200px;
+          width: 100%;
+          max-width: none;
           margin: 0 auto;
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -848,6 +1055,8 @@ export default function QuotationPage() {
         }
 
         .quotation-container {
+          width: 100%;
+          max-width: none;
           background: white;
           border-radius: 12px;
           padding: 2rem;
