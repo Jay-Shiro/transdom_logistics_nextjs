@@ -20,17 +20,30 @@ import {
   Truck,
   User,
 } from "lucide-react";
-import { getAuthUser, hasValidAuth, clearAuthSession } from "@/lib/auth";
+import {
+  getAuthUser,
+  hasValidAuth,
+  clearAuthSession,
+  signInPath,
+} from "@/lib/auth";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
 
-// Map generic speed names to carrier names
-const getCarrierName = (speed: string): string => {
-  const speedMap: Record<string, string> = {
-    economy: "UPS",
-    standard: "FedEx",
-    express: "DHL",
-  };
+// Map generic speed names to a customer-facing service name. International
+// speeds are carrier-branded; local deliveries are handled in-house, so they
+// are labelled by service level instead.
+const getCarrierName = (speed: string, isLocal = false): string => {
+  const speedMap: Record<string, string> = isLocal
+    ? {
+        "same-day": "Same Day",
+        "next-day": "Next Day",
+        standard: "Standard",
+      }
+    : {
+        economy: "UPS",
+        standard: "FedEx",
+        express: "DHL",
+      };
   return speedMap[speed.toLowerCase()] || speed;
 };
 
@@ -55,6 +68,8 @@ interface BasicQuote {
 interface Shipment {
   _id: string;
   order_no: string;
+  // Absent on orders created before local delivery shipped
+  shipment_type?: "international" | "local";
   zone_picked: string;
   delivery_speed: string;
   amount_paid: number;
@@ -174,13 +189,13 @@ export default function Dashboard() {
     const checkAuth = () => {
       try {
         if (!hasValidAuth()) {
-          router.push("/sign-in");
+          router.push(signInPath());
           return;
         }
 
         const userData = getAuthUser();
         if (!userData) {
-          router.push("/sign-in");
+          router.push(signInPath());
           return;
         }
 
@@ -190,7 +205,7 @@ export default function Dashboard() {
         fetchShipments();
       } catch (err) {
         console.error("Auth check failed:", err);
-        router.push("/sign-in");
+        router.push(signInPath());
       }
     };
 
@@ -227,8 +242,9 @@ export default function Dashboard() {
       });
 
       if (response.ok) {
-        // Clear local auth session
-        clearAuthSession();
+        // Clear local auth session - must finish before we navigate, otherwise
+        // the HTTP-only session cookie is still set when the next route loads
+        await clearAuthSession();
 
         // Show success message
         alert(
@@ -261,7 +277,12 @@ export default function Dashboard() {
       standard: "FEDEX",
       express: "DHL",
     };
-    const carrierCode = carrierMap[shipment.delivery_speed.toLowerCase()] || "";
+    // Local deliveries are not carried by DHL/FedEx/UPS, so they must not be
+    // mapped to one - "standard" means something different for them
+    const carrierCode =
+      shipment.shipment_type === "local"
+        ? ""
+        : carrierMap[shipment.delivery_speed.toLowerCase()] || "";
     try {
       const url = `/api/tracking/${encodeURIComponent(shipment.tracking_id)}${carrierCode ? `?carrier=${carrierCode}` : ""}`;
       const res = await fetch(url, { credentials: "include" });
@@ -548,6 +569,17 @@ export default function Dashboard() {
                                 {shipment.order_no}
                               </span>
                               <span
+                                className={`shipment-type-badge ${
+                                  shipment.shipment_type === "local"
+                                    ? "type-local"
+                                    : "type-international"
+                                }`}
+                              >
+                                {shipment.shipment_type === "local"
+                                  ? "Local"
+                                  : "International"}
+                              </span>
+                              <span
                                 className={`status-badge status-${shipment.status}`}
                               >
                                 {shipment.status === "pending" && (
@@ -622,12 +654,19 @@ export default function Dashboard() {
                                 </div>
                               </div>
                               <div className="info-col">
-                                <div className="info-label">Carrier</div>
+                                <div className="info-label">
+                                  {shipment.shipment_type === "local"
+                                    ? "Service"
+                                    : "Carrier"}
+                                </div>
                                 <div
                                   className="info-text"
                                   style={{ textTransform: "capitalize" }}
                                 >
-                                  {getCarrierName(shipment.delivery_speed)}
+                                  {getCarrierName(
+                                    shipment.delivery_speed,
+                                    shipment.shipment_type === "local",
+                                  )}
                                 </div>
                               </div>
                               <div className="info-col">
@@ -4007,6 +4046,29 @@ export default function Dashboard() {
           font-weight: 700;
           border: 1px solid #93c5fd;
           letter-spacing: 0.3px;
+        }
+
+        /* International vs local shipment */
+        .shipment-type-badge {
+          display: inline-flex;
+          align-items: center;
+          padding: 0.25rem 0.625rem;
+          border-radius: 20px;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.3px;
+        }
+
+        .shipment-type-badge.type-local {
+          background: #dcfce7;
+          color: #166534;
+          border: 1px solid #86efac;
+        }
+
+        .shipment-type-badge.type-international {
+          background: #e0e7ff;
+          color: #3730a3;
+          border: 1px solid #a5b4fc;
         }
 
         /* Awaiting tracking label */

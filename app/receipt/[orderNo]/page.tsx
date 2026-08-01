@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { hasValidAuth } from "@/lib/auth";
+import { hasValidAuth, signInPath } from "@/lib/auth";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
 import jsPDF from "jspdf";
@@ -38,6 +38,8 @@ interface OrderDetails {
   shipment_quantity: number;
   shipment_value?: number;
   shipment_weight: number;
+  // Absent on orders created before local delivery shipped
+  shipment_type?: "international" | "local";
   zone_picked: string;
   delivery_speed: string;
   amount_paid: number;
@@ -50,12 +52,20 @@ interface OrderDetails {
   date_approved?: string;
 }
 
-const getCarrierName = (speed: string): string => {
-  const speedMap: Record<string, string> = {
-    economy: "UPS",
-    standard: "FedEx",
-    express: "DHL",
-  };
+// International speeds are carrier-branded; local deliveries are handled
+// in-house, so they are labelled by service level instead.
+const getCarrierName = (speed: string, isLocal = false): string => {
+  const speedMap: Record<string, string> = isLocal
+    ? {
+        "same-day": "Same Day",
+        "next-day": "Next Day",
+        standard: "Standard",
+      }
+    : {
+        economy: "UPS",
+        standard: "FedEx",
+        express: "DHL",
+      };
   return speedMap[speed?.toLowerCase()] || speed;
 };
 
@@ -73,7 +83,7 @@ export default function ReceiptPage() {
     const checkAuthAndFetchOrder = async () => {
       // Check authentication
       if (!hasValidAuth()) {
-        router.push("/sign-in");
+        router.push(signInPath());
         return;
       }
 
@@ -432,9 +442,13 @@ export default function ReceiptPage() {
                 </div>
               )}
               <div className="shipment-detail">
-                <span className="detail-label">Destination Zone:</span>
+                <span className="detail-label">
+                  {order.shipment_type === "local" ? "Route:" : "Destination Zone:"}
+                </span>
                 <span className="detail-value">
-                  {order.zone_picked.replace(/_/g, " ")}
+                  {order.shipment_type === "local"
+                    ? order.zone_picked
+                    : order.zone_picked.replace(/_/g, " ")}
                 </span>
               </div>
               <div className="shipment-detail">
@@ -443,7 +457,10 @@ export default function ReceiptPage() {
                   className="detail-value"
                   style={{ textTransform: "capitalize" }}
                 >
-                  {getCarrierName(order.delivery_speed)}
+                  {getCarrierName(
+                    order.delivery_speed,
+                    order.shipment_type === "local",
+                  )}
                 </span>
               </div>
             </div>

@@ -5,6 +5,8 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 interface MakeOrderRequest {
+  // Shipment type - "local" is Nigeria domestic, state to state
+  shipment_type?: "international" | "local";
   // Sender details
   sender_name: string;
   sender_phone: string;
@@ -107,14 +109,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Validate required receiver fields
+    // Validate required receiver fields.
+    // Nigerian domestic addresses have no post code, so local shipments skip it.
+    const isLocal = body.shipment_type === "local";
     const requiredReceiverFields = [
       "receiver_name",
       "receiver_phone",
       "receiver_address",
       "receiver_state",
       "receiver_city",
-      "receiver_post_code",
+      ...(isLocal ? [] : ["receiver_post_code"]),
       "receiver_country",
     ];
     for (const field of requiredReceiverFields) {
@@ -191,6 +195,7 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        shipment_type: body.shipment_type || "international",
         // Sender details
         sender_name: body.sender_name,
         sender_phone: body.sender_phone,

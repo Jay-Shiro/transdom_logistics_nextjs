@@ -4,7 +4,6 @@ import Footer from "@/app/components/Footer";
 import Header from "@/app/components/Header";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import SEO from "@/app/components/SEO";
-import { hasValidAuth } from "@/lib/auth";
 import {
   CityOption,
   getAllCountries,
@@ -27,6 +26,10 @@ const BASIC_QUOTE_STORAGE_KEY = "transdom_basic_quote";
 
 // Get all countries with zone mapping
 const COUNTRIES = getAllCountries();
+
+// Local delivery is Nigeria-only
+const NIGERIA_ISO = "NG";
+const NIGERIA_STATES = getStatesOfCountry(NIGERIA_ISO);
 
 interface CarrierPrice {
   carrier: string;
@@ -58,6 +61,26 @@ interface QuotationResult {
   unified_zone_display?: string;
 }
 
+type LocalSpeed = "same-day" | "next-day" | "standard";
+
+interface LocalDeliveryOption {
+  speed: LocalSpeed;
+  price: string;
+  estimated_delivery: string;
+}
+
+interface LocalQuotationResult {
+  origin_state: string;
+  origin_state_name: string;
+  destination_state: string;
+  destination_state_name: string;
+  lane: string;
+  weight: number;
+  weight_rounded: number;
+  currency: string;
+  delivery_options: LocalDeliveryOption[];
+}
+
 type Step = "basic" | "delivery";
 
 // Map generic speed names to carrier names
@@ -66,6 +89,17 @@ const getCarrierName = (speed: string): string => {
     economy: "UPS",
     standard: "FedEx",
     express: "DHL",
+  };
+  return speedMap[speed.toLowerCase()] || speed;
+};
+
+// Local deliveries are handled in-house, so speeds are labelled by service
+// level rather than by carrier
+const getLocalSpeedName = (speed: string): string => {
+  const speedMap: Record<string, string> = {
+    "same-day": "Same Day",
+    "next-day": "Next Day",
+    standard: "Standard",
   };
   return speedMap[speed.toLowerCase()] || speed;
 };
@@ -100,14 +134,15 @@ export default function QuotationPage() {
     destinationState: "",
     destinationCity: "",
     weight: "",
-    deliverySpeed: "same-day",
   });
-  const [localEstimate, setLocalEstimate] = useState<{
-    route: string;
-    weight: string;
-    eta: string;
-    price: string;
-  } | null>(null);
+  const [localQuotationResult, setLocalQuotationResult] =
+    useState<LocalQuotationResult | null>(null);
+  const [selectedLocalSpeed, setSelectedLocalSpeed] =
+    useState<LocalSpeed>("standard");
+
+  // City options for the local (Nigeria) form
+  const [localPickupCities, setLocalPickupCities] = useState<CityOption[]>([]);
+  const [localDestCities, setLocalDestCities] = useState<CityOption[]>([]);
 
   // Dynamic state and city options
   const [pickupStates, setPickupStates] = useState<StateOption[]>([]);
@@ -180,7 +215,7 @@ export default function QuotationPage() {
     }
   };
 
-  const handleLocalSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleLocalSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     const {
@@ -189,7 +224,6 @@ export default function QuotationPage() {
       destinationState,
       destinationCity,
       weight,
-      deliverySpeed,
     } = localQuoteData;
 
     if (
@@ -209,27 +243,78 @@ export default function QuotationPage() {
       return;
     }
 
-    const speedMultipliers = {
-      "same-day": { eta: "Same day delivery", multiplier: 2.2 },
-      "next-day": { eta: "Next day delivery", multiplier: 1.6 },
-      standard: { eta: "Within 2-3 days", multiplier: 1.1 },
-    } as const;
+    setIsLoading(true);
+    setError(null);
 
-    const selectedSpeedMeta =
-      speedMultipliers[deliverySpeed as keyof typeof speedMultipliers] ||
-      speedMultipliers.standard;
-    const baseRate = 4500;
-    const estimatedPrice = Math.round(
-      baseRate * parsedWeight * selectedSpeedMeta.multiplier,
+    try {
+      const params = new URLSearchParams({
+        origin_state: pickupState,
+        destination_state: destinationState,
+        weight: String(parsedWeight),
+      });
+
+      const response = await fetch(`/api/local-quote?${params.toString()}`);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to calculate quotation");
+      }
+
+      const result: LocalQuotationResult = await response.json();
+      setLocalQuotationResult(result);
+      setSelectedLocalSpeed("standard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+      setLocalQuotationResult(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Book Now for local deliveries - save quote and redirect
+  const handleCreateLocalOrder = () => {
+    if (!localQuotationResult || !selectedLocalSpeed) {
+      setError("Please select a delivery speed");
+      return;
+    }
+
+    const selectedOption = localQuotationResult.delivery_options.find(
+      (opt) => opt.speed === selectedLocalSpeed,
     );
 
-    setLocalEstimate({
-      route: `${pickupCity}, ${pickupState} → ${destinationCity}, ${destinationState}`,
-      weight: `${parsedWeight} KG`,
-      eta: selectedSpeedMeta.eta,
-      price: `₦${estimatedPrice.toLocaleString()}`,
-    });
-    setError(null);
+    if (!selectedOption) return;
+
+    // Save basic quote to localStorage - same shape the booking page reads for
+    // international shipments, flagged with shipment_type so it can adapt
+    const basicQuote = {
+      shipment_type: "local",
+      pickup_country: "Nigeria",
+      pickup_state: localQuotationResult.origin_state_name,
+      pickup_city: localQuoteData.pickupCity,
+      destination_country: "Nigeria",
+      destination_state: localQuotationResult.destination_state_name,
+      destination_city: localQuoteData.destinationCity,
+      weight: localQuotationResult.weight,
+      zone_picked: localQuotationResult.lane,
+      delivery_speed: selectedLocalSpeed,
+      amount_paid: parseFloat(selectedOption.price.replace(/,/g, "")),
+      estimated_delivery: selectedOption.estimated_delivery,
+      currency: localQuotationResult.currency,
+      timestamp: new Date().toISOString(),
+    };
+
+    localStorage.setItem(BASIC_QUOTE_STORAGE_KEY, JSON.stringify(basicQuote));
+
+    // /booking is gated in middleware.ts, which bounces signed-out users to
+    // /sign-in?redirect=/booking and returns them here afterwards
+    router.push("/booking");
+  };
+
+  // Clear the local quote when the route or weight changes, so a stale price
+  // can never be carried into booking
+  const updateLocalQuoteData = (patch: Partial<typeof localQuoteData>) => {
+    setLocalQuoteData((prev) => ({ ...prev, ...patch }));
+    setLocalQuotationResult(null);
   };
 
   // Load pickup states when pickup country changes
@@ -299,6 +384,33 @@ export default function QuotationPage() {
     }
   }, [destCountryIso, quoteData.destinationState]);
 
+  // Load local pickup cities when the local pickup state changes
+  useEffect(() => {
+    if (!localQuoteData.pickupState) {
+      setLocalPickupCities([]);
+      return;
+    }
+    const stateIso = getStateIsoCode(NIGERIA_ISO, localQuoteData.pickupState);
+    setLocalPickupCities(
+      stateIso ? getCitiesOfState(NIGERIA_ISO, stateIso) : [],
+    );
+    setLocalQuoteData((prev) => ({ ...prev, pickupCity: "" }));
+  }, [localQuoteData.pickupState]);
+
+  // Load local destination cities when the local destination state changes
+  useEffect(() => {
+    if (!localQuoteData.destinationState) {
+      setLocalDestCities([]);
+      return;
+    }
+    const stateIso = getStateIsoCode(
+      NIGERIA_ISO,
+      localQuoteData.destinationState,
+    );
+    setLocalDestCities(stateIso ? getCitiesOfState(NIGERIA_ISO, stateIso) : []);
+    setLocalQuoteData((prev) => ({ ...prev, destinationCity: "" }));
+  }, [localQuoteData.destinationState]);
+
   // Step 3: Book Now - Save and redirect
   const handleCreateOrder = () => {
     if (!quotationResult || !selectedSpeed) {
@@ -314,6 +426,7 @@ export default function QuotationPage() {
 
     // Save basic quote to localStorage
     const basicQuote = {
+      shipment_type: "international",
       pickup_country: quotationResult.pickup_country,
       pickup_state: quoteData.pickupState,
       pickup_city: quoteData.pickupCity,
@@ -333,15 +446,9 @@ export default function QuotationPage() {
 
     localStorage.setItem(BASIC_QUOTE_STORAGE_KEY, JSON.stringify(basicQuote));
 
-    // Check authentication
-    const isAuth = hasValidAuth();
-    if (isAuth) {
-      // Redirect directly to booking page
-      router.push("/booking");
-    } else {
-      // Redirect to sign-in
-      router.push("/sign-in?redirect=booking");
-    }
+    // /booking is gated in middleware.ts, which bounces signed-out users to
+    // /sign-in?redirect=/booking and returns them here afterwards
+    router.push("/booking");
   };
 
   // Start Over - Clear all data
@@ -349,6 +456,17 @@ export default function QuotationPage() {
     setCurrentStep("basic");
     setQuotationResult(null);
     setSelectedSpeed("standard");
+    setLocalQuotationResult(null);
+    setSelectedLocalSpeed("standard");
+    setLocalQuoteData({
+      pickupState: "",
+      pickupCity: "",
+      destinationState: "",
+      destinationCity: "",
+      weight: "",
+    });
+    setLocalPickupCities([]);
+    setLocalDestCities([]);
     setError(null);
     setQuoteData({
       pickupCountry: "",
@@ -825,35 +943,34 @@ export default function QuotationPage() {
                 <div className="form-row">
                   <div className="form-group">
                     <label htmlFor="local-pickup-state">Pickup State *</label>
-                    <input
-                      type="text"
-                      id="local-pickup-state"
-                      className="form-control"
-                      placeholder="Enter pickup state"
+                    <SearchableSelect
+                      options={NIGERIA_STATES}
                       value={localQuoteData.pickupState}
-                      onChange={(e) =>
-                        setLocalQuoteData({
-                          ...localQuoteData,
-                          pickupState: e.target.value,
-                        })
+                      onChange={(value) =>
+                        updateLocalQuoteData({ pickupState: value })
                       }
+                      placeholder="Search state..."
+                      name="local-pickup-state"
+                      id="local-pickup-state"
                       required
                     />
                   </div>
                   <div className="form-group">
                     <label htmlFor="local-pickup-city">Pickup City *</label>
-                    <input
-                      type="text"
-                      id="local-pickup-city"
-                      className="form-control"
-                      placeholder="Enter pickup city"
+                    <SearchableSelect
+                      options={localPickupCities}
                       value={localQuoteData.pickupCity}
-                      onChange={(e) =>
-                        setLocalQuoteData({
-                          ...localQuoteData,
-                          pickupCity: e.target.value,
-                        })
+                      onChange={(value) =>
+                        updateLocalQuoteData({ pickupCity: value })
                       }
+                      placeholder={
+                        localQuoteData.pickupState
+                          ? "Search city..."
+                          : "Select a state first"
+                      }
+                      name="local-pickup-city"
+                      id="local-pickup-city"
+                      disabled={!localQuoteData.pickupState}
                       required
                     />
                   </div>
@@ -864,18 +981,15 @@ export default function QuotationPage() {
                     <label htmlFor="local-destination-state">
                       Destination State *
                     </label>
-                    <input
-                      type="text"
-                      id="local-destination-state"
-                      className="form-control"
-                      placeholder="Enter destination state"
+                    <SearchableSelect
+                      options={NIGERIA_STATES}
                       value={localQuoteData.destinationState}
-                      onChange={(e) =>
-                        setLocalQuoteData({
-                          ...localQuoteData,
-                          destinationState: e.target.value,
-                        })
+                      onChange={(value) =>
+                        updateLocalQuoteData({ destinationState: value })
                       }
+                      placeholder="Search state..."
+                      name="local-destination-state"
+                      id="local-destination-state"
                       required
                     />
                   </div>
@@ -883,18 +997,20 @@ export default function QuotationPage() {
                     <label htmlFor="local-destination-city">
                       Destination City *
                     </label>
-                    <input
-                      type="text"
-                      id="local-destination-city"
-                      className="form-control"
-                      placeholder="Enter destination city"
+                    <SearchableSelect
+                      options={localDestCities}
                       value={localQuoteData.destinationCity}
-                      onChange={(e) =>
-                        setLocalQuoteData({
-                          ...localQuoteData,
-                          destinationCity: e.target.value,
-                        })
+                      onChange={(value) =>
+                        updateLocalQuoteData({ destinationCity: value })
                       }
+                      placeholder={
+                        localQuoteData.destinationState
+                          ? "Search city..."
+                          : "Select a state first"
+                      }
+                      name="local-destination-city"
+                      id="local-destination-city"
+                      disabled={!localQuoteData.destinationState}
                       required
                     />
                   </div>
@@ -912,90 +1028,165 @@ export default function QuotationPage() {
                       step="0.1"
                       value={localQuoteData.weight}
                       onChange={(e) =>
-                        setLocalQuoteData({
-                          ...localQuoteData,
-                          weight: e.target.value,
-                        })
+                        updateLocalQuoteData({ weight: e.target.value })
                       }
                       required
                     />
                   </div>
-                  <div className="form-group">
-                    <label htmlFor="local-delivery-speed">Delivery Speed</label>
-                    <select
-                      id="local-delivery-speed"
-                      className="form-control"
-                      value={localQuoteData.deliverySpeed}
-                      onChange={(e) =>
-                        setLocalQuoteData({
-                          ...localQuoteData,
-                          deliverySpeed: e.target.value,
-                        })
-                      }>
-                      <option value="same-day">Same Day</option>
-                      <option value="next-day">Next Day</option>
-                      <option value="standard">Standard</option>
-                    </select>
-                  </div>
                 </div>
 
-                <button type="submit" className="btn-calculate">
-                  GET QUOTE
+                <button
+                  type="submit"
+                  className="btn-calculate"
+                  disabled={isLoading}>
+                  {isLoading ? "CALCULATING..." : "GET QUOTE"}
                 </button>
 
-                {localEstimate && (
-                  <div
-                    style={{
-                      background: "#f0fdf4",
-                      border: "1px solid #bbf7d0",
-                      borderRadius: "12px",
-                      padding: "1.25rem",
-                      display: "grid",
-                      gap: "0.75rem",
-                    }}>
+                {localQuotationResult && (
+                  <>
+                    <div style={{ marginBottom: "1.5rem" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          marginBottom: "0.5rem",
+                          fontSize: "0.9rem",
+                          color: "#666",
+                        }}>
+                        <span>From:</span>
+                        <strong>
+                          {localQuoteData.pickupCity},{" "}
+                          {localQuotationResult.origin_state_name}
+                        </strong>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          marginBottom: "0.5rem",
+                          fontSize: "0.9rem",
+                          color: "#666",
+                        }}>
+                        <span>To:</span>
+                        <strong>
+                          {localQuoteData.destinationCity},{" "}
+                          {localQuotationResult.destination_state_name}
+                        </strong>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: "0.9rem",
+                          color: "#666",
+                        }}>
+                        <span>Weight:</span>
+                        <strong>{localQuotationResult.weight} KG</strong>
+                      </div>
+                    </div>
+
+                    <h3 className="form-section-title">
+                      Select Delivery Speed
+                    </h3>
+
+                    <div style={{ marginBottom: "1.5rem" }}>
+                      {localQuotationResult.delivery_options.map((option) => (
+                        <div
+                          key={option.speed}
+                          onClick={() => setSelectedLocalSpeed(option.speed)}
+                          style={{
+                            border: "2px solid",
+                            borderColor:
+                              selectedLocalSpeed === option.speed
+                                ? "#fdd835"
+                                : "#ddd",
+                            borderRadius: "8px",
+                            padding: "1rem",
+                            marginBottom: "1rem",
+                            cursor: "pointer",
+                            transition: "all 0.3s ease",
+                            backgroundColor:
+                              selectedLocalSpeed === option.speed
+                                ? "#fffef0"
+                                : "white",
+                          }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              marginBottom: "0.5rem",
+                            }}>
+                            <div>
+                              <input
+                                type="radio"
+                                name="local-delivery-speed"
+                                value={option.speed}
+                                checked={selectedLocalSpeed === option.speed}
+                                onChange={() =>
+                                  setSelectedLocalSpeed(option.speed)
+                                }
+                                style={{ marginRight: "0.5rem" }}
+                              />
+                              <strong style={{ fontSize: "1.1rem" }}>
+                                {getLocalSpeedName(option.speed)}
+                              </strong>
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "1.3rem",
+                                fontWeight: "bold",
+                                color: "#047857",
+                              }}>
+                              {localQuotationResult.currency}{" "}
+                              {option.price}
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "0.9rem",
+                              color: "#666",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.5rem",
+                            }}>
+                            <Package size={14} /> Estimated delivery:{" "}
+                            {option.estimated_delivery}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
                     <div
                       style={{
                         display: "flex",
-                        justifyContent: "space-between",
                         gap: "1rem",
+                        flexDirection: "column",
                       }}>
-                      <span style={{ color: "#6b7280" }}>Route</span>
-                      <strong style={{ textAlign: "right" }}>
-                        {localEstimate.route}
-                      </strong>
+                      <button
+                        type="button"
+                        className="btn-calculate"
+                        onClick={handleCreateLocalOrder}>
+                        BOOK NOW
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStartOver}
+                        style={{
+                          padding: "1rem",
+                          backgroundColor: "transparent",
+                          color: "#047857",
+                          border: "2px solid #047857",
+                          borderRadius: "8px",
+                          cursor: "pointer",
+                          fontSize: "1rem",
+                          fontWeight: "bold",
+                          transition: "all 0.3s ease",
+                        }}>
+                        START OVER
+                      </button>
                     </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "1rem",
-                      }}>
-                      <span style={{ color: "#6b7280" }}>Weight</span>
-                      <strong>{localEstimate.weight}</strong>
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "1rem",
-                      }}>
-                      <span style={{ color: "#6b7280" }}>
-                        Estimated delivery
-                      </span>
-                      <strong>{localEstimate.eta}</strong>
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "1rem",
-                      }}>
-                      <span style={{ color: "#6b7280" }}>Estimated cost</span>
-                      <strong style={{ color: "#047857" }}>
-                        {localEstimate.price}
-                      </strong>
-                    </div>
-                  </div>
+                  </>
                 )}
               </form>
             )}

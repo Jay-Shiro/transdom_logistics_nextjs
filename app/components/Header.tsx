@@ -65,12 +65,15 @@ export default function Header() {
     setMobileMenuOpen(false);
   };
 
-  const handleLogout = () => {
-    clearAuthSession();
+  const handleLogout = async () => {
+    // Clear the UI immediately, then wait for the server to expire the
+    // HTTP-only session cookie before navigating
     setToken(null);
     setUser(null);
     closeMobileMenu();
+    await clearAuthSession();
     router.push("/");
+    router.refresh();
   };
 
   if (!mounted) {

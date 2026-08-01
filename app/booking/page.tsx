@@ -7,7 +7,7 @@ import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
 import SEO from "@/app/components/SEO";
 import { useRouter } from "next/navigation";
-import { hasValidAuth, getAuthUser } from "@/lib/auth";
+import { hasValidAuth, getAuthUser, signInPath } from "@/lib/auth";
 import { AlertTriangle, Lightbulb, MapPin } from "lucide-react";
 import {
   getCountryIsoCode,
@@ -22,19 +22,29 @@ import SearchableSelect from "@/app/components/SearchableSelect";
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL || "https://transdomlogistics.com";
 
-// Map generic speed names to carrier names
-const getCarrierName = (speed: string): string => {
-  const speedMap: Record<string, string> = {
-    economy: "UPS",
-    standard: "FedEx",
-    express: "DHL",
-  };
+// Map generic speed names to a customer-facing service name. International
+// speeds are carrier-branded; local deliveries are handled in-house, so they
+// are labelled by service level instead.
+const getCarrierName = (speed: string, isLocal = false): string => {
+  const speedMap: Record<string, string> = isLocal
+    ? {
+        "same-day": "Same Day",
+        "next-day": "Next Day",
+        standard: "Standard",
+      }
+    : {
+        economy: "UPS",
+        standard: "FedEx",
+        express: "DHL",
+      };
   return speedMap[speed.toLowerCase()] || speed;
 };
 
 const BASIC_QUOTE_STORAGE_KEY = "transdom_basic_quote";
 
 interface BasicQuote {
+  // Absent on quotes saved before local delivery shipped — treat as international
+  shipment_type?: "international" | "local";
   pickup_country: string;
   pickup_state?: string;
   pickup_city?: string;
@@ -43,7 +53,12 @@ interface BasicQuote {
   destination_city?: string;
   weight: number;
   zone_picked: string;
-  delivery_speed: "economy" | "standard" | "express";
+  delivery_speed:
+    | "economy"
+    | "standard"
+    | "express"
+    | "same-day"
+    | "next-day";
   amount_paid: number;
   estimated_delivery: string;
   currency: string;
@@ -59,6 +74,10 @@ export default function BookingPage() {
   const [currentStep, setCurrentStep] = useState<Step>("sender");
   const [error, setError] = useState<string | null>(null);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+
+  // Local (Nigeria domestic) shipments skip the post code and never leave the
+  // country, so several fields behave differently
+  const isLocal = basicQuote?.shipment_type === "local";
 
   // Sender details
   const [senderDetails, setSenderDetails] = useState({
@@ -116,8 +135,10 @@ export default function BookingPage() {
   useEffect(() => {
     const checkAuthAndLoadQuote = () => {
       // Check authentication
+      // Second line of defence - middleware.ts already gates /booking, this
+      // only fires if the session expires while the tab is open
       if (!hasValidAuth()) {
-        router.push("/sign-in?redirect=booking");
+        router.push(signInPath());
         return;
       }
 
@@ -359,18 +380,21 @@ export default function BookingPage() {
       return;
     }
 
-    // Validate post code (supports letters and numbers)
-    if (!receiverDetails.postCode || receiverDetails.postCode.trim() === "") {
-      setError("Receiver post code is required");
-      return;
-    }
+    // Validate post code (supports letters and numbers).
+    // Nigerian domestic addresses have no post code, so local deliveries skip this.
+    if (!isLocal) {
+      if (!receiverDetails.postCode || receiverDetails.postCode.trim() === "") {
+        setError("Receiver post code is required");
+        return;
+      }
 
-    const postalCodeRegex = /^[A-Za-z0-9\s-]+$/;
-    if (!postalCodeRegex.test(receiverDetails.postCode.trim())) {
-      setError(
-        "Post code can only contain letters, numbers, spaces, or hyphens",
-      );
-      return;
+      const postalCodeRegex = /^[A-Za-z0-9\s-]+$/;
+      if (!postalCodeRegex.test(receiverDetails.postCode.trim())) {
+        setError(
+          "Post code can only contain letters, numbers, spaces, or hyphens",
+        );
+        return;
+      }
     }
 
     setError(null);
@@ -436,6 +460,7 @@ export default function BookingPage() {
       if (paymentMethod === "online") {
         // Save booking details to localStorage before redirecting to payment
         const bookingDetailsForStorage = {
+          shipment_type: basicQuote.shipment_type || "international",
           sender_name: senderDetails.name,
           sender_phone: senderDetails.phone,
           sender_address: senderDetails.address,
@@ -533,6 +558,7 @@ export default function BookingPage() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
+            shipment_type: basicQuote.shipment_type || "international",
             sender_name: senderDetails.name,
             sender_phone: senderDetails.phone,
             sender_address: senderDetails.address,
@@ -763,7 +789,7 @@ export default function BookingPage() {
                 </div>
                 <div>
                   <strong>Delivery:</strong>{" "}
-                  {getCarrierName(basicQuote.delivery_speed)}
+                  {getCarrierName(basicQuote.delivery_speed, isLocal)}
                 </div>
                 <div>
                   <strong>Base Price:</strong> {basicQuote.currency}{" "}
@@ -1186,36 +1212,39 @@ export default function BookingPage() {
                 </div>
 
                 <div className="form-row">
-                  <div className="form-group">
-                    <label htmlFor="receiver-postcode">
-                      Post Code *
-                      <span
-                        style={{
-                          fontSize: "12px",
-                          color: "#6b7280",
-                          marginLeft: "8px",
-                        }}
-                      >
-                        (Letters and numbers)
-                      </span>
-                    </label>
-                    <input
-                      type="text"
-                      id="receiver-postcode"
-                      className="form-control"
-                      value={receiverDetails.postCode}
-                      onChange={(e) =>
-                        setReceiverDetails({
-                          ...receiverDetails,
-                          postCode: e.target.value,
-                        })
-                      }
-                      placeholder="e.g., SW1A 1AA or 23467"
-                      pattern="[A-Za-z0-9\s-]+"
-                      title="Post code can contain letters, numbers, spaces, and hyphens"
-                      required
-                    />
-                  </div>
+                  {/* Nigerian domestic addresses have no post code */}
+                  {!isLocal && (
+                    <div className="form-group">
+                      <label htmlFor="receiver-postcode">
+                        Post Code *
+                        <span
+                          style={{
+                            fontSize: "12px",
+                            color: "#6b7280",
+                            marginLeft: "8px",
+                          }}
+                        >
+                          (Letters and numbers)
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        id="receiver-postcode"
+                        className="form-control"
+                        value={receiverDetails.postCode}
+                        onChange={(e) =>
+                          setReceiverDetails({
+                            ...receiverDetails,
+                            postCode: e.target.value,
+                          })
+                        }
+                        placeholder="e.g., SW1A 1AA or 23467"
+                        pattern="[A-Za-z0-9\s-]+"
+                        title="Post code can contain letters, numbers, spaces, and hyphens"
+                        required
+                      />
+                    </div>
+                  )}
                   <div className="form-group">
                     <label htmlFor="receiver-country">
                       Country *
@@ -1608,9 +1637,11 @@ export default function BookingPage() {
                     <strong>Location:</strong> {receiverDetails.city},{" "}
                     {receiverDetails.state}, {receiverDetails.country}
                   </div>
-                  <div style={{ fontSize: "0.9rem" }}>
-                    <strong>Post Code:</strong> {receiverDetails.postCode}
-                  </div>
+                  {!isLocal && (
+                    <div style={{ fontSize: "0.9rem" }}>
+                      <strong>Post Code:</strong> {receiverDetails.postCode}
+                    </div>
+                  )}
                 </div>
 
                 <div
@@ -1651,7 +1682,7 @@ export default function BookingPage() {
                   )}
                   <div style={{ fontSize: "0.9rem", marginBottom: "0.5rem" }}>
                     <strong>Delivery Speed:</strong>{" "}
-                    {getCarrierName(basicQuote.delivery_speed)}
+                    {getCarrierName(basicQuote.delivery_speed, isLocal)}
                   </div>
                   <div style={{ fontSize: "0.9rem" }}>
                     <strong>Estimated Delivery:</strong>{" "}

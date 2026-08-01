@@ -72,6 +72,7 @@ function VerifyContent() {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          shipment_type: bookingDetails.shipment_type || "international",
           sender_name: bookingDetails.sender_name,
           sender_phone: bookingDetails.sender_phone,
           sender_address: bookingDetails.sender_address,

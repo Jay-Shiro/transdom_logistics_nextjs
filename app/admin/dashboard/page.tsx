@@ -40,6 +40,8 @@ import {
 interface Order {
   _id: string;
   order_no: string;
+  // Absent on orders created before local delivery shipped
+  shipment_type?: "international" | "local";
   zone_picked: string;
   delivery_speed: string;
   weight: number;
@@ -90,12 +92,20 @@ interface ShippingRate {
   rates: RateEntry[];
 }
 
-const getCarrierName = (speed: string): string => {
-  const speedMap: Record<string, string> = {
-    economy: "UPS",
-    standard: "FedEx",
-    express: "DHL",
-  };
+// International speeds are carrier-branded; local deliveries are handled
+// in-house, so they are labelled by service level instead.
+const getCarrierName = (speed: string, isLocal = false): string => {
+  const speedMap: Record<string, string> = isLocal
+    ? {
+        "same-day": "Same Day",
+        "next-day": "Next Day",
+        standard: "Standard",
+      }
+    : {
+        economy: "UPS",
+        standard: "FedEx",
+        express: "DHL",
+      };
   return speedMap[speed?.toLowerCase()] || speed;
 };
 
@@ -809,7 +819,7 @@ The Transdom Express Team`,
       "Shipment Weight (kg)": order.shipment_weight || order.weight,
       "Shipment Value (NGN)": order.shipment_value || "",
       Zone: order.zone_picked,
-      "Delivery Speed": getCarrierName(order.delivery_speed),
+      "Delivery Speed": getCarrierName(order.delivery_speed, order.shipment_type === "local"),
       "Amount Paid (NGN)": order.amount_paid,
     }));
 
@@ -863,7 +873,7 @@ The Transdom Express Team`,
       "Shipment Weight (kg)": order.shipment_weight || order.weight,
       "Shipment Value (NGN)": order.shipment_value || "",
       Zone: order.zone_picked,
-      "Delivery Speed": getCarrierName(order.delivery_speed),
+      "Delivery Speed": getCarrierName(order.delivery_speed, order.shipment_type === "local"),
       "Amount Paid (NGN)": order.amount_paid,
     }));
 
@@ -1026,7 +1036,7 @@ The Transdom Express Team`,
 --- Order #${order.order_no} ---
 Zone: ${order.zone_picked}
 Weight: ${order.shipment_weight || order.weight} kg
-Delivery Speed: ${getCarrierName(order.delivery_speed)}
+Delivery Speed: ${getCarrierName(order.delivery_speed, order.shipment_type === "local")}
 Amount Paid: ₦${order.amount_paid?.toLocaleString()}
 Status: ${order.status}
 Date: ${new Date(order.date_created).toLocaleDateString()}
@@ -1156,7 +1166,7 @@ Date: ${new Date(order.date_created).toLocaleDateString()}
           )
           .replace(
             /{delivery_speed}/g,
-            getCarrierName(firstOrder.delivery_speed) || "",
+            getCarrierName(firstOrder.delivery_speed, firstOrder.shipment_type === "local") || "",
           )
           .replace(/{amount}/g, String(firstOrder.amount_paid || ""));
       }
@@ -3464,6 +3474,30 @@ Date: ${new Date(order.date_created).toLocaleDateString()}
                             >
                               {order.order_no}
                             </span>
+                            <div style={{ marginTop: "4px" }}>
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  fontWeight: "600",
+                                  padding: "2px 8px",
+                                  borderRadius: "9999px",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.03em",
+                                  backgroundColor:
+                                    order.shipment_type === "local"
+                                      ? "#dcfce7"
+                                      : "#e0e7ff",
+                                  color:
+                                    order.shipment_type === "local"
+                                      ? "#166534"
+                                      : "#3730a3",
+                                }}
+                              >
+                                {order.shipment_type === "local"
+                                  ? "Local"
+                                  : "International"}
+                              </span>
+                            </div>
                           </td>
                           <td style={{ padding: "1rem 1.5rem" }}>
                             <div style={{ fontSize: "14px" }}>
@@ -6059,7 +6093,7 @@ Date: ${new Date(order.date_created).toLocaleDateString()}
                           </div>
                           <div>
                             <strong>Speed:</strong>{" "}
-                            {getCarrierName(order.delivery_speed)}
+                            {getCarrierName(order.delivery_speed, order.shipment_type === "local")}
                           </div>
                           <div>
                             <strong>Amount:</strong> ₦

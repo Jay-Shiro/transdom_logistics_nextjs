@@ -1,15 +1,20 @@
 "use client";
 
-import { useState, FormEvent, useMemo } from "react";
+import { useState, FormEvent, useMemo, Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
+import { getSafeRedirect, withRedirect } from "@/lib/auth";
 
 const QUOTATION_STORAGE_KEY = "transdom_quotation_form";
 
-export default function SignUpPage() {
+function SignUpForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Set when the user was sent here from a gated page, e.g. /sign-up?redirect=booking
+  const redirectParam = searchParams.get("redirect");
+  const redirectTo = getSafeRedirect(redirectParam);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
@@ -86,7 +91,10 @@ export default function SignUpPage() {
         // Check if there's a quotation in localStorage
         const quotationData = localStorage.getItem(QUOTATION_STORAGE_KEY);
 
-        if (quotationData) {
+        if (redirectTo) {
+          // Came from a gated page (e.g. BOOK NOW) - send them back to it
+          window.location.href = redirectTo;
+        } else if (quotationData) {
           // Quotation exists, redirect to dashboard with quotation
           window.location.href = "/dashboard?from=quotation";
         } else {
@@ -378,7 +386,8 @@ export default function SignUpPage() {
             </div>
 
             <p className="signup-login-link">
-              Already have an account? <Link href="/sign-in">Log In</Link>
+              Already have an account?{" "}
+              <Link href={withRedirect("/sign-in", redirectParam)}>Log In</Link>
             </p>
           </div>
         </div>
@@ -417,5 +426,28 @@ export default function SignUpPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="signup-page">
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              height: "100vh",
+            }}
+          >
+            <p>Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <SignUpForm />
+    </Suspense>
   );
 }

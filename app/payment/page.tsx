@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { hasValidAuth, getAuthUser } from "@/lib/auth";
+import { hasValidAuth, getAuthUser, signInPath } from "@/lib/auth";
 import { AlertTriangle, CreditCard, Lock } from "lucide-react";
 
 interface PaymentInitResponse {
@@ -49,7 +49,7 @@ function PaymentContent() {
 
   useEffect(() => {
     if (!isAuth || !user) {
-      router.push("/sign-in");
+      router.push(signInPath());
       return;
     }
 
